@@ -1,0 +1,13 @@
+{
+  "required": true,
+  "minVersion": "0.8",
+  "compatibilityLevel": "JAVA_21",
+  "package": "ru.spark108.social.mixin",
+  "mixins": [
+    "SpectatorTradeClickMixin"
+  ],
+  "client": [
+    "HoveredOutlineMinecraftMixin",
+    "HoveredOutlineEntityMixin"
+  ]
+}

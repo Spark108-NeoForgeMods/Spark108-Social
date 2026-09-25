@@ -1,0 +1,43 @@
+plugins {
+    id 'org.moddingx.modgradle.meta' version '5.1.5'
+}
+
+base { archivesName = 'Spark108-Social' }
+
+tasks.withType(org.gradle.jvm.tasks.Jar).configureEach {
+    destinationDirectory = file('../artifacts')
+}
+
+repositories { mavenCentral() }
+
+mod.configure {
+    modid 'spark108_social'
+    group 'ru.spark108.social'
+    versioning { constant '1.0.0' }
+    neoforge project.hasProperty('neo_version') ? project.neo_version : '21.1.238'
+    license 'The Apache License, Version 2.0'
+    artifacts { sources { publishToRepositories() } }
+}
+
+dependencies {
+    compileOnly files('../Spark108-EconomyApi/build/libs/Spark108-EconomyApi-1.0.0.jar')
+    compileOnly 'net.luckperms:api:5.4'
+}
+
+tasks.withType(JavaExec).configureEach { standardInput = System.in }
+
+runs {
+    configureEach {
+        workingDirectory project.layout.projectDirectory.dir('runs').dir(name)
+        modSource project.sourceSets.main
+    }
+
+    client {
+    }
+
+    client2 {
+        run 'client'
+        workingDirectory file('runs/client2')
+        arguments '--username', 'Player2'
+    }
+}
