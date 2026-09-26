@@ -20,6 +20,8 @@ import java.util.UUID;
 
 final class TradeManager {
     private static final Map<UUID, Session> ACTIVE = new HashMap<>();
+    private static final Map<UUID, Invitation> PENDING = new HashMap<>();
+    private static final int INVITATION_TICKS = 30 * 20;
     private static final double MAX_DISTANCE_SQUARED = 36.0;
 
     private TradeManager() {}
@@ -49,6 +51,28 @@ final class TradeManager {
             first.sendSystemMessage(Component.translatable("screen.spark108_social.trade_busy"));
             return;
         }
+        Invitation invitation = PENDING.get(first.getUUID());
+        if (invitation != null && invitation.sender == second && invitation.recipient == first) {
+            invitation.remove();
+            start(second, first);
+            return;
+        }
+        if (invitation != null && invitation.sender == first && invitation.recipient == second) {
+            first.sendSystemMessage(Component.translatable("screen.spark108_social.trade_request_sent", second.getName()));
+            return;
+        }
+        if (invitation != null || PENDING.containsKey(second.getUUID())) {
+            first.sendSystemMessage(Component.translatable("screen.spark108_social.trade_request_busy"));
+            return;
+        }
+        invitation = new Invitation(first, second);
+        PENDING.put(first.getUUID(), invitation);
+        PENDING.put(second.getUUID(), invitation);
+        first.sendSystemMessage(Component.translatable("screen.spark108_social.trade_request_sent", second.getName()));
+        second.sendSystemMessage(Component.translatable("screen.spark108_social.trade_request_received", first.getName()));
+    }
+
+    private static void start(ServerPlayer first, ServerPlayer second) {
         Session session = new Session(first, second);
         ACTIVE.put(first.getUUID(), session);
         ACTIVE.put(second.getUUID(), session);
@@ -56,6 +80,7 @@ final class TradeManager {
         boolean openedSecond = openedFirst && openFor(session, second, false);
         if (!openedSecond) {
             session.cancel();
+            first.sendSystemMessage(Component.translatable("screen.spark108_social.trade_request_declined", second.getName()));
             return;
         }
         session.sendState();
@@ -85,16 +110,54 @@ final class TradeManager {
     }
 
     static void onServerTick(ServerTickEvent.Post event) {
+        for (Invitation invitation : new HashSet<>(PENDING.values())) invitation.tick();
         for (Session session : new HashSet<>(ACTIVE.values())) session.tick();
     }
 
     static void onServerStopping(ServerStoppingEvent event) {
+        for (Invitation invitation : new HashSet<>(PENDING.values())) invitation.decline();
         for (Session session : new HashSet<>(ACTIVE.values())) session.cancel();
     }
 
     static void onPlayerLogout(PlayerEvent.PlayerLoggedOutEvent event) {
+        Invitation invitation = PENDING.get(event.getEntity().getUUID());
+        if (invitation != null) invitation.decline();
         Session session = ACTIVE.get(event.getEntity().getUUID());
         if (session != null) session.cancel();
+    }
+
+    private static final class Invitation {
+        private final ServerPlayer sender;
+        private final ServerPlayer recipient;
+        private int ticks = INVITATION_TICKS;
+
+        Invitation(ServerPlayer sender, ServerPlayer recipient) {
+            this.sender = sender;
+            this.recipient = recipient;
+        }
+
+        void tick() {
+            if (--ticks <= 0 || !sender.isAlive() || !recipient.isAlive()
+                    || sender.hasDisconnected() || recipient.hasDisconnected()
+                    || sender.level() != recipient.level() || sender.distanceToSqr(recipient) > MAX_DISTANCE_SQUARED
+                    || !SocialConfig.allows(sender) || !SocialConfig.allows(recipient)
+                    || !SocialPermissions.has(sender, SocialPermissions.TRADE)
+                    || !SocialPermissions.has(recipient, SocialPermissions.TRADE)
+                    || ACTIVE.containsKey(sender.getUUID()) || ACTIVE.containsKey(recipient.getUUID())) decline();
+        }
+
+        void remove() {
+            PENDING.remove(sender.getUUID(), this);
+            PENDING.remove(recipient.getUUID(), this);
+        }
+
+        void decline() {
+            remove();
+            if (!sender.hasDisconnected()) sender.sendSystemMessage(Component.translatable(
+                    "screen.spark108_social.trade_request_declined", recipient.getName()));
+            if (!recipient.hasDisconnected()) recipient.sendSystemMessage(Component.translatable(
+                    "screen.spark108_social.trade_request_expired", sender.getName()));
+        }
     }
 
     static final class Session {
