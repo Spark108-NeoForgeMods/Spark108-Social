@@ -4,6 +4,8 @@ import net.minecraft.network.RegistryFriendlyByteBuf;
 import net.minecraft.network.codec.StreamCodec;
 import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
 import net.minecraft.resources.ResourceLocation;
+import net.minecraft.network.chat.Component;
+import net.minecraft.network.chat.ComponentSerialization;
 
 import java.util.UUID;
 import java.util.List;
@@ -78,12 +80,37 @@ public final class SocialPackets {
         @Override public Type<? extends CustomPacketPayload> type() { return TYPE; }
     }
 
-    public record ActionsReply(UUID target, boolean transfer, boolean trade, boolean spectatorBlocked) implements CustomPacketPayload {
+    public record MenuButton(ResourceLocation id, Component title) {}
+
+    public record MenuActionRequest(UUID target, ResourceLocation action) implements CustomPacketPayload {
+        public static final Type<MenuActionRequest> TYPE = new Type<>(id("menu_action"));
+        public static final StreamCodec<RegistryFriendlyByteBuf, MenuActionRequest> CODEC = StreamCodec.of(
+                (buf, packet) -> { buf.writeUUID(packet.target); buf.writeResourceLocation(packet.action); },
+                buf -> new MenuActionRequest(buf.readUUID(), buf.readResourceLocation()));
+        @Override public Type<? extends CustomPacketPayload> type() { return TYPE; }
+    }
+
+    public record ActionsReply(UUID target, boolean transfer, boolean trade, boolean spectatorBlocked,
+                               List<MenuButton> buttons) implements CustomPacketPayload {
         public static final Type<ActionsReply> TYPE = new Type<>(id("actions_reply"));
         public static final StreamCodec<RegistryFriendlyByteBuf, ActionsReply> CODEC = StreamCodec.of(
                 (buf, packet) -> { buf.writeUUID(packet.target); buf.writeBoolean(packet.transfer);
-                    buf.writeBoolean(packet.trade); buf.writeBoolean(packet.spectatorBlocked); },
-                buf -> new ActionsReply(buf.readUUID(), buf.readBoolean(), buf.readBoolean(), buf.readBoolean()));
+                    buf.writeBoolean(packet.trade); buf.writeBoolean(packet.spectatorBlocked);
+                    buf.writeVarInt(packet.buttons.size());
+                    for (MenuButton button : packet.buttons) {
+                        buf.writeResourceLocation(button.id);
+                        ComponentSerialization.STREAM_CODEC.encode(buf, button.title);
+                    }
+                }, buf -> {
+                    UUID target = buf.readUUID();
+                    boolean transfer = buf.readBoolean(), trade = buf.readBoolean(), blocked = buf.readBoolean();
+                    int count = buf.readVarInt();
+                    if (count < 0 || count > 64) throw new IllegalArgumentException("Invalid menu button count");
+                    List<MenuButton> buttons = new ArrayList<>(count);
+                    for (int i = 0; i < count; i++) buttons.add(new MenuButton(buf.readResourceLocation(),
+                            ComponentSerialization.STREAM_CODEC.decode(buf)));
+                    return new ActionsReply(target, transfer, trade, blocked, List.copyOf(buttons));
+                });
         @Override public Type<? extends CustomPacketPayload> type() { return TYPE; }
     }
 

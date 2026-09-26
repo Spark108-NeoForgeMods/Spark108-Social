@@ -51,6 +51,8 @@ public final class SocialMod {
 
     private void registerPackets(RegisterPayloadHandlersEvent event) {
         var registrar = event.registrar("1");
+        registrar.playToServer(SocialPackets.MenuActionRequest.TYPE, SocialPackets.MenuActionRequest.CODEC,
+                (packet, context) -> context.enqueueWork(() -> SocialServer.menuAction(context.player(), packet)));
         registrar.playToServer(SocialPackets.HaloRequest.TYPE, SocialPackets.HaloRequest.CODEC,
                 (packet, context) -> context.enqueueWork(() -> SocialServer.halo(context.player(), packet)));
         registrar.playToServer(SocialPackets.ActionsRequest.TYPE, SocialPackets.ActionsRequest.CODEC,

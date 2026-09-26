@@ -7,15 +7,16 @@ import net.minecraft.network.chat.Component;
 import net.neoforged.neoforge.network.PacketDistributor;
 
 import java.util.UUID;
+import java.util.List;
+import java.util.ArrayList;
 
 final class SocialMenuScreen extends Screen {
     private final UUID target;
     private final String name;
-    private Button transferButton;
-    private Button tradeButton;
+    private record MenuAction(Component title, Runnable execute) {}
+    private final List<MenuAction> actions = new ArrayList<>();
+    private int scroll;
     private boolean loaded;
-    private boolean canTransfer;
-    private boolean canTrade;
 
     SocialMenuScreen(UUID target, String name) {
         super(Component.translatable("screen.spark108_social.actions"));
@@ -24,16 +25,6 @@ final class SocialMenuScreen extends Screen {
     }
 
     @Override protected void init() {
-        int x = Math.min(width - 190, width / 2 + 16);
-        int y = height / 2 - 24;
-        transferButton = addRenderableWidget(Button.builder(Component.translatable("screen.spark108_social.transfer_action"),
-                button -> minecraft.setScreen(new TransferScreen(target, name)))
-                .bounds(x + 8, y + 27, 170, 20).build());
-        tradeButton = addRenderableWidget(Button.builder(Component.translatable("screen.spark108_social.trade_action"),
-                button -> {
-                    PacketDistributor.sendToServer(new SocialPackets.TradeOpenRequest(target));
-                    minecraft.setScreen(null);
-                }).bounds(x + 8, y + 51, 170, 20).build());
         updateButtons();
         PacketDistributor.sendToServer(new SocialPackets.ActionsRequest(target));
     }
@@ -45,27 +36,56 @@ final class SocialMenuScreen extends Screen {
             return;
         }
         loaded = true;
-        canTransfer = reply.transfer();
-        canTrade = reply.trade();
+        actions.clear();
+        if (reply.transfer()) actions.add(new MenuAction(Component.translatable("screen.spark108_social.transfer_action"),
+                () -> minecraft.setScreen(new TransferScreen(target, name))));
+        if (reply.trade()) actions.add(new MenuAction(Component.translatable("screen.spark108_social.trade_action"), () -> {
+            PacketDistributor.sendToServer(new SocialPackets.TradeOpenRequest(target));
+            minecraft.setScreen(null);
+        }));
+        for (SocialPackets.MenuButton button : reply.buttons()) actions.add(new MenuAction(button.title(), () -> {
+            minecraft.setScreen(null);
+            PacketDistributor.sendToServer(new SocialPackets.MenuActionRequest(target, button.id()));
+        }));
         updateButtons();
     }
 
+    private int capacity() { return Math.max(1, (height - 60) / 24); }
+    private int visibleCount() { return Math.min(actions.size(), capacity()); }
+    private int panelHeight() { return actions.isEmpty() ? 52 : 31 + visibleCount() * 24; }
+    private int panelX() { return Math.max(4, Math.min(width - 190, width / 2 + 16)); }
+    private int panelY() { return Math.max(4, Math.min(height / 2 - 24, height - panelHeight() - 4)); }
+
     private void updateButtons() {
-        if (transferButton == null || tradeButton == null) return;
-        transferButton.visible = canTransfer;
-        tradeButton.visible = canTrade;
-        tradeButton.setY(transferButton.getY() + (canTransfer ? 24 : 0));
+        clearWidgets();
+        scroll = Math.max(0, Math.min(scroll, actions.size() - visibleCount()));
+        for (int row = 0; row < visibleCount(); row++) {
+            MenuAction action = actions.get(scroll + row);
+            addRenderableWidget(Button.builder(action.title(), button -> action.execute().run())
+                    .bounds(panelX() + 8, panelY() + 27 + row * 24, 170, 20).build());
+        }
+    }
+
+    @Override public boolean mouseScrolled(double mouseX, double mouseY, double horizontal, double vertical) {
+        if (actions.size() <= capacity() || mouseX < panelX() || mouseX > panelX() + 186
+                || mouseY < panelY() || mouseY > panelY() + panelHeight())
+            return super.mouseScrolled(mouseX, mouseY, horizontal, vertical);
+        scroll += vertical > 0 ? -1 : vertical < 0 ? 1 : 0;
+        updateButtons();
+        return true;
     }
 
     @Override public void render(GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
         renderBlurredBackground(partialTick);
-        int x = Math.min(width - 190, width / 2 + 16);
-        int y = height / 2 - 24;
-        int actions = (canTransfer ? 1 : 0) + (canTrade ? 1 : 0);
-        graphics.fill(x, y, x + 186, y + (actions == 0 ? 52 : 31 + actions * 24), 0xE0212630);
+        int x = panelX();
+        int y = panelY();
+        graphics.fill(x, y, x + 186, y + panelHeight(), 0xE0212630);
         graphics.fill(x, y, x + 186, y + 2, 0xFF60D8EF);
         graphics.drawString(font, name, x + 8, y + 8, 0xFFFFFFFF);
-        if (actions == 0) graphics.drawString(font,
+        if (actions.size() > capacity()) graphics.drawString(font,
+                (scroll > 0 ? "↑" : "") + (scroll + visibleCount() < actions.size() ? "↓" : ""),
+                x + 164, y + 8, 0xFFBFC7CC);
+        if (actions.isEmpty()) graphics.drawString(font,
                 Component.translatable(loaded ? "screen.spark108_social.no_actions" : "screen.spark108_social.loading"),
                 x + 8, y + 29, 0xFFBFC7CC);
         super.render(graphics, mouseX, mouseY, partialTick);

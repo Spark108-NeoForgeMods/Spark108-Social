@@ -30,7 +30,7 @@ final class SocialServer {
     static void actions(Player sender, SocialPackets.ActionsRequest packet) {
         if (!(sender instanceof ServerPlayer player)) return;
         if (!SocialConfig.allows(player)) {
-            PacketDistributor.sendToPlayer(player, new SocialPackets.ActionsReply(packet.target(), false, false, true));
+            PacketDistributor.sendToPlayer(player, new SocialPackets.ActionsReply(packet.target(), false, false, true, List.of()));
             return;
         }
         ServerPlayer target = recipient(player, packet.target());
@@ -39,7 +39,14 @@ final class SocialServer {
                 available && SocialPermissions.has(player, SocialPermissions.TRANSFER),
                 available && SocialPermissions.has(player, SocialPermissions.TRADE)
                         && SocialConfig.allows(target)
-                        && SocialPermissions.has(target, SocialPermissions.TRADE), false));
+                        && SocialPermissions.has(target, SocialPermissions.TRADE), false,
+                available ? PlayerMenuApi.buttons(player, target) : List.of()));
+    }
+
+    static void menuAction(Player sender, SocialPackets.MenuActionRequest packet) {
+        if (!(sender instanceof ServerPlayer player) || !SocialConfig.allows(player)) return;
+        ServerPlayer target = recipient(player, packet.target());
+        if (target != null) PlayerMenuApi.execute(packet.action(), player, target);
     }
 
     static void balance(Player sender, SocialPackets.BalanceRequest packet) {
